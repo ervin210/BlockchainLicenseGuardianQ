@@ -1,0 +1,518 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Violation, Asset } from "@shared/schema";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Legend } from 'recharts';
+import { analyzeUsagePattern } from "@/lib/ai-monitor";
+import { useToast } from "@/hooks/use-toast";
+
+const VIOLATION_TYPES = [
+  { key: 'duplication', color: '#ef4444' },
+  { key: 'suspicious_pattern', color: '#f97316' },
+  { key: 'unauthorized_access', color: '#8b5cf6' }
+];
+
+// Sample data for demonstration purposes
+const dailyUsageData = [
+  { day: 'Mon', authorizedAccess: 42, unauthorizedAttempts: 3 },
+  { day: 'Tue', authorizedAccess: 53, unauthorizedAttempts: 2 },
+  { day: 'Wed', authorizedAccess: 49, unauthorizedAttempts: 5 },
+  { day: 'Thu', authorizedAccess: 65, unauthorizedAttempts: 4 },
+  { day: 'Fri', authorizedAccess: 58, unauthorizedAttempts: 2 },
+  { day: 'Sat', authorizedAccess: 32, unauthorizedAttempts: 1 },
+  { day: 'Sun', authorizedAccess: 27, unauthorizedAttempts: 0 },
+];
+
+const usagePatternData = [
+  { hour: '00', usage: 5 },
+  { hour: '02', usage: 3 },
+  { hour: '04', usage: 2 },
+  { hour: '06', usage: 7 },
+  { hour: '08', usage: 18 },
+  { hour: '10', usage: 25 },
+  { hour: '12', usage: 32 },
+  { hour: '14', usage: 37 },
+  { hour: '16', usage: 30 },
+  { hour: '18', usage: 25 },
+  { hour: '20', usage: 15 },
+  { hour: '22', usage: 8 },
+];
+
+export default function AiMonitoring() {
+  const [activeTab, setActiveTab] = useState("violations");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const { data: violations, isLoading: isLoadingViolations } = useQuery<Violation[]>({
+    queryKey: ['/api/violations'],
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  const { data: assets, isLoading: isLoadingAssets } = useQuery<Asset[]>({
+    queryKey: ['/api/assets'],
+  });
+
+  // Filter violations based on search term and selected asset
+  const filteredViolations = violations?.filter(violation => {
+    const matchesSearch = 
+      violation.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      violation.severity.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    const matchesAsset = selectedAsset ? 
+      violation.assetId === parseInt(selectedAsset) : 
+      true;
+    
+    return matchesSearch && matchesAsset;
+  });
+
+  // Count violations by type for pie chart
+  const violationsByType = violations?.reduce((acc: any, violation) => {
+    acc[violation.type] = (acc[violation.type] || 0) + 1;
+    return acc;
+  }, {});
+
+  const pieChartData = violationsByType ? 
+    Object.keys(violationsByType).map(type => ({
+      name: type.replace(/_/g, ' '),
+      value: violationsByType[type]
+    })) : [];
+
+  // Function to run AI analysis on a specific asset
+  const runAiAnalysis = async () => {
+    if (!selectedAsset) {
+      toast({
+        title: "Error",
+        description: "Please select an asset to analyze",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const result = await analyzeUsagePattern(parseInt(selectedAsset));
+      
+      toast({
+        title: "Analysis Complete",
+        description: result.message,
+        variant: result.anomalies.length > 0 ? "destructive" : "default",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Analysis Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const getViolationTitle = (type: string) => {
+    switch(type) {
+      case 'duplication':
+        return 'Unauthorized Duplication Attempt';
+      case 'suspicious_pattern':
+        return 'Suspicious Usage Pattern';
+      case 'unauthorized_access':
+        return 'Unauthorized Access Attempt';
+      default:
+        return type.replace(/_/g, ' ');
+    }
+  };
+
+  const getViolationIcon = (severity: string) => {
+    switch(severity) {
+      case 'high':
+        return (
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+          </svg>
+        );
+      case 'medium':
+        return (
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        );
+      default:
+        return (
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        );
+    }
+  };
+
+  const getViolationDescription = (violation: Violation) => {
+    switch(violation.type) {
+      case 'duplication':
+        return 'Multiple simultaneous access from different locations';
+      case 'suspicious_pattern':
+        return 'Unusual API call frequency or access patterns detected';
+      case 'unauthorized_access':
+        return 'Attempt to access without proper authorization';
+      default:
+        return 'Unknown violation type';
+    }
+  };
+
+  const getSeverityBgColor = (severity: string) => {
+    switch(severity) {
+      case 'high':
+        return 'bg-red-50';
+      case 'medium':
+        return 'bg-yellow-50';
+      case 'low':
+        return 'bg-blue-50';
+      default:
+        return 'bg-gray-50';
+    }
+  };
+
+  const getSeverityIconBgColor = (severity: string) => {
+    switch(severity) {
+      case 'high':
+        return 'bg-white text-red-600';
+      case 'medium':
+        return 'bg-white text-yellow-600';
+      case 'low':
+        return 'bg-white text-blue-600';
+      default:
+        return 'bg-white text-gray-600';
+    }
+  };
+
+  return (
+    <>
+      <header className="bg-white shadow">
+        <div className="flex justify-between items-center px-6 py-4">
+          <h2 className="text-xl font-semibold text-neutral-dark">AI Monitoring</h2>
+          <Button onClick={runAiAnalysis}>
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            Run AI Analysis
+          </Button>
+        </div>
+      </header>
+
+      <div className="p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
+          <Card className="col-span-1">
+            <CardHeader>
+              <CardTitle className="text-base">AI System Status</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Real-time Monitoring</span>
+                  <span className="text-sm font-medium text-green-600 flex items-center">
+                    <span className="h-2 w-2 rounded-full bg-green-600 mr-1.5"></span>
+                    Active
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Anomaly Detection</span>
+                  <span className="text-sm font-medium text-green-600 flex items-center">
+                    <span className="h-2 w-2 rounded-full bg-green-600 mr-1.5"></span>
+                    Active
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Pattern Learning</span>
+                  <span className="text-sm font-medium text-green-600 flex items-center">
+                    <span className="h-2 w-2 rounded-full bg-green-600 mr-1.5"></span>
+                    Active
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Last Model Update</span>
+                  <span className="text-sm font-medium">12 hours ago</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground">Detection Accuracy</span>
+                  <span className="text-sm font-medium">97.8%</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="col-span-3">
+            <CardHeader>
+              <CardTitle className="text-base">Daily Usage Overview</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-60">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={dailyUsageData} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="day" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="authorizedAccess" name="Authorized Access" fill="#0ea5e9" />
+                    <Bar dataKey="unauthorizedAttempts" name="Unauthorized Attempts" fill="#ef4444" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          <Card className="col-span-1">
+            <CardHeader>
+              <CardTitle className="text-base">Violation Types</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-60">
+                {isLoadingViolations ? (
+                  <div className="flex items-center justify-center h-full">
+                    <Skeleton className="h-full w-full rounded" />
+                  </div>
+                ) : violations && violations.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pieChartData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="value"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {pieChartData.map((entry, index) => (
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={VIOLATION_TYPES.find(t => t.key === entry.name.replace(' ', '_'))?.color || '#8884d8'} 
+                          />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground">
+                    No violation data available
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="col-span-2">
+            <CardHeader>
+              <CardTitle className="text-base">Usage Pattern Analysis</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-60">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={usagePatternData} margin={{ top: 10, right: 10, left: 0, bottom: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="hour" label={{ value: 'Hour of Day', position: 'insideBottom', offset: -5 }} />
+                    <YAxis label={{ value: 'Access Count', angle: -90, position: 'insideLeft' }} />
+                    <Tooltip />
+                    <Line type="monotone" dataKey="usage" stroke="#8884d8" strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader className="border-b border-gray-200">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <CardTitle>AI Detection Results</CardTitle>
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full sm:w-auto">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="violations">Violations</TabsTrigger>
+                  <TabsTrigger value="analytics">Analytics</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
+          </CardHeader>
+          <CardContent className="p-6">
+            <TabsContent value="violations" className="mt-0">
+              <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                <div className="relative flex-1">
+                  <Input 
+                    type="text" 
+                    placeholder="Search violations..." 
+                    className="pl-10"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  <div className="absolute left-3 top-2.5 text-muted-foreground">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="w-full sm:w-64">
+                  <select 
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    value={selectedAsset || ""}
+                    onChange={(e) => setSelectedAsset(e.target.value || null)}
+                  >
+                    <option value="">All Assets</option>
+                    {assets?.map(asset => (
+                      <option key={asset.id} value={asset.id.toString()}>
+                        {asset.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                {isLoadingViolations ? (
+                  Array(3).fill(0).map((_, i) => (
+                    <div key={i} className="flex items-start p-4 bg-gray-50 rounded-lg">
+                      <Skeleton className="h-8 w-8 rounded-full mr-4" />
+                      <div className="flex-1">
+                        <Skeleton className="h-5 w-1/2 mb-2" />
+                        <Skeleton className="h-4 w-1/3 mb-2" />
+                        <Skeleton className="h-4 w-2/3" />
+                      </div>
+                    </div>
+                  ))
+                ) : filteredViolations && filteredViolations.length > 0 ? (
+                  filteredViolations.map(violation => (
+                    <div 
+                      key={violation.id} 
+                      className={`flex items-start p-4 rounded-lg ${getSeverityBgColor(violation.severity)}`}
+                    >
+                      <div className={`p-2 rounded-full mr-4 ${getSeverityIconBgColor(violation.severity)}`}>
+                        {getViolationIcon(violation.severity)}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-sm font-medium">{getViolationTitle(violation.type)}</h4>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            violation.severity === 'high' ? 'bg-red-100 text-red-800' : 
+                            violation.severity === 'medium' ? 'bg-yellow-100 text-yellow-800' : 
+                            'bg-blue-100 text-blue-800'
+                          }`}>
+                            {violation.severity.charAt(0).toUpperCase() + violation.severity.slice(1)} Severity
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Asset #{violation.assetId} • {new Date(violation.timestamp!).toLocaleString()}
+                        </p>
+                        <p className="text-xs mt-1">{getViolationDescription(violation)}</p>
+                        {!violation.isResolved && (
+                          <div className="mt-2">
+                            <Button variant="outline" size="sm" className="h-7 text-xs">
+                              Mark as Resolved
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    <h3 className="mt-2 text-sm font-medium text-gray-900">No violations found</h3>
+                    <p className="mt-1 text-sm text-gray-500">
+                      {searchTerm || selectedAsset ? "Try adjusting your filters" : "All assets are currently secure"}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="analytics" className="mt-0">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Pattern Recognition Confidence</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="h-60">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart 
+                          layout="vertical" 
+                          data={[
+                            { name: 'Normal Usage', confidence: 98 },
+                            { name: 'Suspicious Pattern', confidence: 87 },
+                            { name: 'Unauthorized Copy', confidence: 92 },
+                            { name: 'License Violation', confidence: 95 }
+                          ]}
+                          margin={{ top: 20, right: 20, bottom: 20, left: 70 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis type="number" domain={[0, 100]} />
+                          <YAxis dataKey="name" type="category" />
+                          <Tooltip />
+                          <Bar dataKey="confidence" fill="#8884d8" name="Confidence %" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">AI Learning Progress</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-6">
+                      <div>
+                        <div className="flex justify-between mb-1">
+                          <span className="text-sm font-medium">Usage Pattern Recognition</span>
+                          <span className="text-sm font-medium">92%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="bg-blue-600 h-2 rounded-full" style={{ width: '92%' }}></div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between mb-1">
+                          <span className="text-sm font-medium">Anomaly Detection</span>
+                          <span className="text-sm font-medium">87%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="bg-purple-600 h-2 rounded-full" style={{ width: '87%' }}></div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between mb-1">
+                          <span className="text-sm font-medium">User Behavior Analysis</span>
+                          <span className="text-sm font-medium">78%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="bg-green-600 h-2 rounded-full" style={{ width: '78%' }}></div>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <div className="flex justify-between mb-1">
+                          <span className="text-sm font-medium">Fraud Prevention</span>
+                          <span className="text-sm font-medium">95%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div className="bg-red-600 h-2 rounded-full" style={{ width: '95%' }}></div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </TabsContent>
+          </CardContent>
+        </Card>
+      </div>
+    </>
+  );
+}

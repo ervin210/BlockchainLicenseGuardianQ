@@ -1,9 +1,14 @@
 const { db } = require('./db');
 const { eq, and } = require('drizzle-orm');
 const schema = require('../shared/schema');
+const crypto = require('crypto');
 
 // Storage interface for database operations
 class DatabaseStorage {
+  // License key generation helper method
+  generateLicenseKey(length = 24) {
+    return crypto.randomBytes(length).toString('hex').toUpperCase();
+  }
   // User operations
   async getUser(id) {
     const [user] = await db.select().from(schema.users).where(eq(schema.users.id, id));
@@ -159,8 +164,169 @@ class DatabaseStorage {
       .returning();
     return file;
   }
+
+  // License key operations
+  async createLicenseKey(licenseData) {
+    // Generate a new license key if not provided
+    if (!licenseData.licenseKey) {
+      licenseData.licenseKey = this.generateLicenseKey();
+    }
+    
+    const [license] = await db.insert(schema.licenseKeys)
+      .values(licenseData).returning();
+    return license;
+  }
+
+  async getLicenseKey(id) {
+    const [license] = await db.select().from(schema.licenseKeys)
+      .where(eq(schema.licenseKeys.id, id));
+    return license || undefined;
+  }
+
+  async getLicenseKeyByCode(licenseKey) {
+    const [license] = await db.select().from(schema.licenseKeys)
+      .where(eq(schema.licenseKeys.licenseKey, licenseKey));
+    return license || undefined;
+  }
+
+  async getUserLicenses(userId) {
+    return await db.select().from(schema.licenseKeys)
+      .where(eq(schema.licenseKeys.userId, userId))
+      .orderBy(schema.licenseKeys.createdAt);
+  }
+
+  async updateLicenseKey(id, updateData) {
+    const [license] = await db.update(schema.licenseKeys)
+      .set({ 
+        ...updateData,
+        updatedAt: new Date()
+      })
+      .where(eq(schema.licenseKeys.id, id))
+      .returning();
+    return license;
+  }
+
+  async deactivateLicense(id) {
+    const [license] = await db.update(schema.licenseKeys)
+      .set({ 
+        isActive: false,
+        updatedAt: new Date()
+      })
+      .where(eq(schema.licenseKeys.id, id))
+      .returning();
+    return license;
+  }
+
+  // License activation operations
+  async activateLicense(activationData) {
+    // Check if license still has activations available
+    const license = await this.getLicenseKey(activationData.licenseId);
+    
+    if (!license || !license.isActive) {
+      throw new Error('License is inactive or does not exist');
+    }
+    
+    const activationsLeft = license.activationsLeft || 0;
+    if (activationsLeft <= 0) {
+      throw new Error('No activations left for this license');
+    }
+    
+    // Create the activation record
+    const [activation] = await db.insert(schema.licenseActivations)
+      .values(activationData).returning();
+    
+    // Decrement the available activations
+    const currentActivations = license.activationsLeft || 0;
+    await this.updateLicenseKey(license.id, {
+      activationsLeft: Math.max(0, currentActivations - 1)
+    });
+    
+    return activation;
+  }
+
+  async getLicenseActivations(licenseId) {
+    return await db.select().from(schema.licenseActivations)
+      .where(eq(schema.licenseActivations.licenseId, licenseId))
+      .orderBy(schema.licenseActivations.activatedAt);
+  }
+
+  async deactivateLicenseOnDevice(licenseId, deviceId) {
+    const [activation] = await db.update(schema.licenseActivations)
+      .set({ 
+        isActive: false,
+        lastCheckedAt: new Date()
+      })
+      .where(and(
+        eq(schema.licenseActivations.licenseId, licenseId),
+        eq(schema.licenseActivations.deviceId, deviceId)
+      ))
+      .returning();
+    
+    // If deactivation successful, increment available activations
+    if (activation) {
+      const license = await this.getLicenseKey(licenseId);
+      if (license) {
+        await this.updateLicenseKey(license.id, {
+          activationsLeft: license.activationsLeft + 1
+        });
+      }
+    }
+    
+    return activation;
+  }
+
+  async checkLicenseStatus(licenseKey, deviceId) {
+    // Get the license
+    const license = await this.getLicenseKeyByCode(licenseKey);
+    if (!license || !license.isActive) {
+      return { valid: false, reason: 'License inactive or not found' };
+    }
+    
+    // Check expiration if set
+    if (license.expiresAt && new Date(license.expiresAt) < new Date()) {
+      return { valid: false, reason: 'License expired' };
+    }
+    
+    // Check activation on this device
+    const [activation] = await db.select().from(schema.licenseActivations)
+      .where(and(
+        eq(schema.licenseActivations.licenseId, license.id),
+        eq(schema.licenseActivations.deviceId, deviceId),
+        eq(schema.licenseActivations.isActive, true)
+      ));
+    
+    // Update last checked time if active
+    if (activation) {
+      await db.update(schema.licenseActivations)
+        .set({ lastCheckedAt: new Date() })
+        .where(eq(schema.licenseActivations.id, activation.id));
+      
+      return { 
+        valid: true, 
+        license,
+        activation
+      };
+    }
+    
+    // Check if activations available
+    if (license.activationsLeft > 0) {
+      return { 
+        valid: false, 
+        reason: 'Not activated on this device',
+        canActivate: true,
+        license
+      };
+    }
+    
+    return { 
+      valid: false, 
+      reason: 'No activations available',
+      license
+    };
+  }
 }
 
 // Export the storage interface
 const storage = new DatabaseStorage();
+
 module.exports = { storage };

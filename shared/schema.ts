@@ -1,9 +1,9 @@
-import { pgTable, serial, text, timestamp, boolean, json, integer, pgEnum } from "drizzle-orm/pg-core";
-import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod";
+const { pgTable, serial, text, timestamp, boolean, json, integer, pgEnum } = require("drizzle-orm/pg-core");
+const { createInsertSchema } = require("drizzle-zod");
+const zod = require("zod");
 
 // User table
-export const users = pgTable("users", {
+const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   email: text("email").notNull(),
@@ -13,6 +13,31 @@ export const users = pgTable("users", {
   stripeCustomerId: text("stripe_customer_id"),
   stripeSubscriptionId: text("stripe_subscription_id"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// License Keys table
+const licenseKeys = pgTable("license_keys", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  licenseKey: text("license_key").notNull().unique(),
+  planType: text("plan_type").notNull(), // standard, premium, enterprise
+  isActive: boolean("is_active").default(true),
+  expiresAt: timestamp("expires_at"),
+  activationsLeft: integer("activations_left").default(1),
+  maxActivations: integer("max_activations").default(1),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// License Activations table - keeps track of where licenses are activated
+export const licenseActivations = pgTable("license_activations", {
+  id: serial("id").primaryKey(),
+  licenseId: integer("license_id").notNull().references(() => licenseKeys.id),
+  deviceId: text("device_id").notNull(),
+  ipAddress: text("ip_address"),
+  activatedAt: timestamp("activated_at").defaultNow(),
+  lastCheckedAt: timestamp("last_checked_at").defaultNow(),
+  isActive: boolean("is_active").default(true),
 });
 
 // Permissions enum for access control
@@ -78,19 +103,63 @@ export const insertAccessControlSchema = createInsertSchema(accessControl).omit(
 export const insertFileIntegritySchema = createInsertSchema(fileIntegrity).omit({ 
   id: true, createdAt: true, updatedAt: true, blockchainTxId: true, status: true 
 });
+export const insertLicenseKeySchema = createInsertSchema(licenseKeys).omit({
+  id: true, createdAt: true, updatedAt: true
+});
+export const insertLicenseActivationSchema = createInsertSchema(licenseActivations).omit({
+  id: true, activatedAt: true, lastCheckedAt: true
+});
 
 // Type definitions
-export type User = typeof users.$inferSelect;
-export type InsertUser = z.infer<typeof insertUserSchema>;
+const User = typeof users.$inferSelect;
+const InsertUser = zod.infer(typeof insertUserSchema);
 
-export type ImmutabilityRecord = typeof immutabilityRecords.$inferSelect;
-export type InsertImmutabilityRecord = z.infer<typeof insertImmutabilityRecordSchema>;
+const ImmutabilityRecord = typeof immutabilityRecords.$inferSelect;
+const InsertImmutabilityRecord = zod.infer(typeof insertImmutabilityRecordSchema);
 
-export type SecurityLog = typeof securityLogs.$inferSelect;
-export type InsertSecurityLog = z.infer<typeof insertSecurityLogSchema>;
+const SecurityLog = typeof securityLogs.$inferSelect;
+const InsertSecurityLog = zod.infer(typeof insertSecurityLogSchema);
 
-export type AccessControl = typeof accessControl.$inferSelect;
-export type InsertAccessControl = z.infer<typeof insertAccessControlSchema>;
+const AccessControl = typeof accessControl.$inferSelect;
+const InsertAccessControl = zod.infer(typeof insertAccessControlSchema);
 
-export type FileIntegrity = typeof fileIntegrity.$inferSelect;
-export type InsertFileIntegrity = z.infer<typeof insertFileIntegritySchema>;
+const FileIntegrity = typeof fileIntegrity.$inferSelect;
+const InsertFileIntegrity = zod.infer(typeof insertFileIntegritySchema);
+
+const LicenseKey = typeof licenseKeys.$inferSelect;
+const InsertLicenseKey = zod.infer(typeof insertLicenseKeySchema);
+
+const LicenseActivation = typeof licenseActivations.$inferSelect;
+const InsertLicenseActivation = zod.infer(typeof insertLicenseActivationSchema);
+
+module.exports = {
+  users,
+  licenseKeys,
+  licenseActivations,
+  permissionEnum,
+  immutabilityRecords,
+  securityLogs,
+  accessControl,
+  fileIntegrity,
+  insertUserSchema,
+  insertImmutabilityRecordSchema,
+  insertSecurityLogSchema,
+  insertAccessControlSchema,
+  insertFileIntegritySchema,
+  insertLicenseKeySchema,
+  insertLicenseActivationSchema,
+  User,
+  InsertUser,
+  ImmutabilityRecord,
+  InsertImmutabilityRecord,
+  SecurityLog,
+  InsertSecurityLog,
+  AccessControl,
+  InsertAccessControl,
+  FileIntegrity,
+  InsertFileIntegrity,
+  LicenseKey,
+  InsertLicenseKey,
+  LicenseActivation,
+  InsertLicenseActivation
+};

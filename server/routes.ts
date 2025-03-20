@@ -1,12 +1,12 @@
 const express = require("express");
 const { createServer } = require("http");
-const { WebSocketServer } = require('ws');
+const { WebSocketServer } = require("ws");
 const { setupAuth, isAuthenticated, ensureValidDevice } = require("./replitAuth");
 const { storage } = require("./storage");
 const { createHash } = require("crypto");
 const { Web3 } = require("web3");
-const { fileMonitor } = require('./code-integrity');
-const z = require("zod");
+const { fileMonitor } = require("./code-integrity");
+const { z } = require("zod");
 
 // Set up a basic Web3 instance for blockchain interactions
 const web3 = new Web3(process.env.ETHEREUM_RPC_URL || "https://mainnet.infura.io/v3/YOUR_INFURA_KEY");
@@ -219,6 +219,231 @@ async function registerRoutes(app) {
     });
   });
 
+  // License key management endpoints
+  app.post('/api/license/generate', isAuthenticated, ensureValidDevice, async (req, res) => {
+    try {
+      const { userId, planType, maxActivations, expiresAt } = req.body;
+      
+      // Only admins can generate license keys for other users
+      if (userId && userId !== req.user.id) {
+        // Check if the current user has admin permission
+        // In the future, implement proper admin check
+        return res.status(403).json({ 
+          message: "Only administrators can generate licenses for other users" 
+        });
+      }
+      
+      // Validate the request data
+      const licenseData = {
+        userId: userId || req.user.id,
+        planType: planType || 'standard',
+        maxActivations: maxActivations || 1,
+        activationsLeft: maxActivations || 1,
+        expiresAt: expiresAt || null
+      };
+      
+      // Generate the license key
+      const license = await storage.createLicenseKey(licenseData);
+      
+      // Log the license creation for security audit
+      await storage.addSecurityLog({
+        userId: req.user.id,
+        event: 'license_generated',
+        details: { licenseId: license.id, forUserId: license.userId },
+        severity: 'info'
+      });
+      
+      res.status(201).json(license);
+    } catch (error) {
+      console.error("Error generating license key:", error);
+      res.status(500).json({ 
+        message: "Error generating license key", 
+        error: error.message 
+      });
+    }
+  });
+  
+  app.get('/api/license/list', isAuthenticated, async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const licenses = await storage.getUserLicenses(userId);
+      
+      res.json(licenses);
+    } catch (error) {
+      console.error("Error fetching licenses:", error);
+      res.status(500).json({ 
+        message: "Error fetching licenses", 
+        error: error.message 
+      });
+    }
+  });
+  
+  app.get('/api/license/:id', isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const license = await storage.getLicenseKey(id);
+      
+      if (!license) {
+        return res.status(404).json({ message: "License not found" });
+      }
+      
+      // Only allow users to view their own licenses
+      if (license.userId !== req.user.id) {
+        // Check if the current user has admin permission
+        // In the future, implement proper admin check
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      res.json(license);
+    } catch (error) {
+      console.error("Error fetching license:", error);
+      res.status(500).json({ 
+        message: "Error fetching license", 
+        error: error.message 
+      });
+    }
+  });
+  
+  app.post('/api/license/activate', isAuthenticated, async (req, res) => {
+    try {
+      const { licenseKey } = req.body;
+      
+      if (!licenseKey) {
+        return res.status(400).json({ message: "License key is required" });
+      }
+      
+      // Get the license by key
+      const license = await storage.getLicenseKeyByCode(licenseKey);
+      
+      if (!license) {
+        return res.status(404).json({ message: "License not found" });
+      }
+      
+      // Get device information
+      const deviceId = req.headers['x-device-id'] || req.cookies.deviceId || 'unknown-device';
+      
+      // Check if the license has already been activated on this device
+      const activations = await storage.getLicenseActivations(license.id);
+      const existingActivation = activations.find(a => a.deviceId === deviceId && a.isActive);
+      
+      if (existingActivation) {
+        return res.json({
+          message: "License already activated on this device",
+          activation: existingActivation,
+          license
+        });
+      }
+      
+      // Attempt to activate the license
+      try {
+        const activation = await storage.activateLicense({
+          licenseId: license.id,
+          deviceId,
+          ipAddress: req.ip
+        });
+        
+        // Log the activation for security audit
+        await storage.addSecurityLog({
+          userId: req.user.id,
+          event: 'license_activated',
+          details: { licenseId: license.id, activationId: activation.id },
+          severity: 'info',
+          deviceId
+        });
+        
+        res.status(201).json({
+          message: "License activated successfully",
+          activation,
+          license
+        });
+      } catch (error) {
+        res.status(400).json({ 
+          message: error.message,
+          license
+        });
+      }
+    } catch (error) {
+      console.error("Error activating license:", error);
+      res.status(500).json({ 
+        message: "Error activating license", 
+        error: error.message 
+      });
+    }
+  });
+  
+  app.post('/api/license/deactivate', isAuthenticated, async (req, res) => {
+    try {
+      const { licenseId } = req.body;
+      
+      if (!licenseId) {
+        return res.status(400).json({ message: "License ID is required" });
+      }
+      
+      // Get the license
+      const license = await storage.getLicenseKey(licenseId);
+      
+      if (!license) {
+        return res.status(404).json({ message: "License not found" });
+      }
+      
+      // Get device information
+      const deviceId = req.headers['x-device-id'] || req.cookies.deviceId || 'unknown-device';
+      
+      // Deactivate the license on this device
+      const activation = await storage.deactivateLicenseOnDevice(licenseId, deviceId);
+      
+      if (activation) {
+        // Log the deactivation for security audit
+        await storage.addSecurityLog({
+          userId: req.user.id,
+          event: 'license_deactivated',
+          details: { licenseId, activationId: activation.id },
+          severity: 'info',
+          deviceId
+        });
+        
+        res.json({
+          message: "License deactivated successfully",
+          activation
+        });
+      } else {
+        res.status(404).json({
+          message: "License not activated on this device"
+        });
+      }
+    } catch (error) {
+      console.error("Error deactivating license:", error);
+      res.status(500).json({ 
+        message: "Error deactivating license", 
+        error: error.message 
+      });
+    }
+  });
+  
+  app.post('/api/license/verify', async (req, res) => {
+    try {
+      const { licenseKey } = req.body;
+      
+      if (!licenseKey) {
+        return res.status(400).json({ message: "License key is required" });
+      }
+      
+      // Get device information
+      const deviceId = req.headers['x-device-id'] || req.cookies.deviceId || 'unknown-device';
+      
+      // Check the license status
+      const status = await storage.checkLicenseStatus(licenseKey, deviceId);
+      
+      res.json(status);
+    } catch (error) {
+      console.error("Error verifying license:", error);
+      res.status(500).json({ 
+        message: "Error verifying license", 
+        error: error.message 
+      });
+    }
+  });
+
   // File Integrity monitoring endpoints
   app.post('/api/integrity/scan', isAuthenticated, ensureValidDevice, async (req, res) => {
     try {
@@ -299,7 +524,7 @@ async function registerRoutes(app) {
       console.log('Received:', message);
       
       // Echo the message back for testing
-      if (ws.readyState === ws.OPEN) {
+      if (ws.readyState === 1) { // WebSocket.OPEN is 1
         ws.send(`Echo: ${message}`);
       }
     });

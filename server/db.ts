@@ -1,6 +1,6 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
-import * as schema from '../shared/schema';
+const { drizzle } = require('drizzle-orm/node-postgres');
+const { Pool } = require('pg');
+const schema = require('../shared/schema');
 
 // Create PostgreSQL pool
 const pool = new Pool({
@@ -8,7 +8,7 @@ const pool = new Pool({
 });
 
 // Create drizzle database instance
-export const db = drizzle(pool, { schema });
+const db = drizzle(pool, { schema });
 
-// Export pool for use in other places
-export { pool };
+// Export for use in other places
+module.exports = { db, pool };

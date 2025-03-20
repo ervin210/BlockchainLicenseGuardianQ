@@ -7,6 +7,8 @@ const { storage } = require('./storage');
  * File Integrity Monitor for detecting unauthorized code deletion or modification
  */
 class FileIntegrityMonitor {
+  ignorePatterns: string[];
+  
   constructor() {
     this.ignorePatterns = [
       '.git', 
@@ -119,8 +121,8 @@ class FileIntegrityMonitor {
   async verifyAllFiles() {
     try {
       const files = await storage.getAllFiles();
-      const missingFiles = [];
-      const modifiedFiles = [];
+      const missingFiles: any[] = [];
+      const modifiedFiles: any[] = [];
       
       for (const file of files) {
         const fullPath = path.join(process.cwd(), file.filePath);
@@ -219,4 +221,5 @@ class FileIntegrityMonitor {
 
 // Export the monitor
 const fileMonitor = new FileIntegrityMonitor();
+
 module.exports = { fileMonitor };

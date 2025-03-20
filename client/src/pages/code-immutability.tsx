@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { apiRequest } from '../lib/queryClient';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -26,20 +26,27 @@ function CodeImmutabilityPage() {
   const queryClient = useQueryClient();
 
   // Query for deleted files
-  const deletedFilesQuery = useQuery({
+  const deletedFilesQuery = useQuery<{ message: string; report: IntegrityReport }>({
     queryKey: ['/api/integrity/deleted'],
     enabled: activeTab === 'deleted',
   });
 
   // Query for modified files
-  const modifiedFilesQuery = useQuery({
+  const modifiedFilesQuery = useQuery<{ message: string; report: IntegrityReport }>({
     queryKey: ['/api/integrity/modified'],
     enabled: activeTab === 'modified',
   });
 
   // Mutation for scanning files
-  const scanMutation = useMutation({
-    mutationFn: () => apiRequest('POST', '/api/integrity/scan'),
+  interface ScanResponse {
+    message: string;
+    result: {
+      success: boolean;
+    };
+  }
+  
+  const scanMutation = useMutation<ScanResponse>({
+    mutationFn: () => apiRequest('POST', '/api/integrity/scan').then(res => res.json()),
     onSuccess: () => {
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['/api/integrity/deleted'] });
@@ -50,8 +57,17 @@ function CodeImmutabilityPage() {
   });
 
   // Mutation for verifying files
-  const verifyMutation = useMutation({
-    mutationFn: () => apiRequest('GET', '/api/integrity/verify'),
+  interface VerifyResponse {
+    message: string;
+    result: {
+      totalFiles: number;
+      missingFiles: any[];
+      modifiedFiles: any[];
+    };
+  }
+  
+  const verifyMutation = useMutation<VerifyResponse>({
+    mutationFn: () => apiRequest('GET', '/api/integrity/verify').then(res => res.json()),
   });
 
   // Function to handle scanning
