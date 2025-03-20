@@ -30,7 +30,7 @@ const licenseKeys = pgTable("license_keys", {
 });
 
 // License Activations table - keeps track of where licenses are activated
-export const licenseActivations = pgTable("license_activations", {
+const licenseActivations = pgTable("license_activations", {
   id: serial("id").primaryKey(),
   licenseId: integer("license_id").notNull().references(() => licenseKeys.id),
   deviceId: text("device_id").notNull(),
@@ -41,10 +41,10 @@ export const licenseActivations = pgTable("license_activations", {
 });
 
 // Permissions enum for access control
-export const permissionEnum = pgEnum("permission", ["read", "write", "admin"]);
+const permissionEnum = pgEnum("permission", ["read", "write", "admin"]);
 
 // Code immutability records table - tracks code stored on blockchain
-export const immutabilityRecords = pgTable("immutability_records", {
+const immutabilityRecords = pgTable("immutability_records", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
   codeHash: text("code_hash").notNull().unique(),
@@ -56,7 +56,7 @@ export const immutabilityRecords = pgTable("immutability_records", {
 });
 
 // Security logs table - tracks security events
-export const securityLogs = pgTable("security_logs", {
+const securityLogs = pgTable("security_logs", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
   event: text("event").notNull(),
@@ -68,7 +68,7 @@ export const securityLogs = pgTable("security_logs", {
 });
 
 // Access control table - manages permissions
-export const accessControl = pgTable("access_control", {
+const accessControl = pgTable("access_control", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id),
   resourceId: text("resource_id").notNull(),
@@ -77,7 +77,7 @@ export const accessControl = pgTable("access_control", {
 });
 
 // File integrity table for tracking unauthorized modifications
-export const fileIntegrity = pgTable("file_integrity", {
+const fileIntegrity = pgTable("file_integrity", {
   id: serial("id").primaryKey(),
   filePath: text("file_path").notNull().unique(),
   fileHash: text("file_hash").notNull(),
@@ -90,23 +90,23 @@ export const fileIntegrity = pgTable("file_integrity", {
 });
 
 // Schemas for inserts with Zod validation
-export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
-export const insertImmutabilityRecordSchema = createInsertSchema(immutabilityRecords).omit({ 
+const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
+const insertImmutabilityRecordSchema = createInsertSchema(immutabilityRecords).omit({ 
   id: true, createdAt: true, lastVerified: true, blockchainTxId: true, status: true 
 });
-export const insertSecurityLogSchema = createInsertSchema(securityLogs).omit({ 
+const insertSecurityLogSchema = createInsertSchema(securityLogs).omit({ 
   id: true, createdAt: true 
 });
-export const insertAccessControlSchema = createInsertSchema(accessControl).omit({ 
+const insertAccessControlSchema = createInsertSchema(accessControl).omit({ 
   id: true, createdAt: true 
 });
-export const insertFileIntegritySchema = createInsertSchema(fileIntegrity).omit({ 
+const insertFileIntegritySchema = createInsertSchema(fileIntegrity).omit({ 
   id: true, createdAt: true, updatedAt: true, blockchainTxId: true, status: true 
 });
-export const insertLicenseKeySchema = createInsertSchema(licenseKeys).omit({
+const insertLicenseKeySchema = createInsertSchema(licenseKeys).omit({
   id: true, createdAt: true, updatedAt: true
 });
-export const insertLicenseActivationSchema = createInsertSchema(licenseActivations).omit({
+const insertLicenseActivationSchema = createInsertSchema(licenseActivations).omit({
   id: true, activatedAt: true, lastCheckedAt: true
 });
 
