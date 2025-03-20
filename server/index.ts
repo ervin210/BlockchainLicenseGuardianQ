@@ -4,10 +4,12 @@ const dotenv = require('dotenv');
 const { WebSocketServer } = require('ws');
 const { registerRoutes } = require('./routes');
 
-// Import Express types for type checking
-type Request = express.Request;
-type Response = express.Response;
-type NextFunction = express.NextFunction;
+// Declare types for TypeScript
+interface Request extends Express.Request {}
+interface Response extends Express.Response {}
+interface NextFunction {
+  (err?: any): void;
+}
 
 // Load environment variables
 dotenv.config();
@@ -21,7 +23,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Log all requests
-app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((req: Request, res: Response, next: NextFunction) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
   next();
 });
